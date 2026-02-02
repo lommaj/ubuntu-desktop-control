@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "organization": "lommaj",
+  "date": "February 2026",
+  "abstract": "Desktop GUI automation skill for Ubuntu/X11 using xdotool and scrot. Control mouse, keyboard, take screenshots, and manage windows - ideal for wallet popups, browser extensions, and any GUI automation beyond browser scope.",
+  "references": [
+    "https://github.com/jordansissel/xdotool",
+    "https://github.com/resurrecting-open-source-projects/scrot"
+  ]
+}
