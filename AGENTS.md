@@ -1,353 +1,299 @@
 # Ubuntu Desktop Control - Agent Guide
 
-> Desktop GUI automation skill for Ubuntu/X11 using xdotool and scrot. Control mouse, keyboard, take screenshots, and manage windows - ideal for wallet popups, browser extensions, and any GUI automation beyond browser scope.
+> Desktop GUI automation skill for Ubuntu/X11 with semantic element targeting. Uses AT-SPI accessibility tree as primary method and OCR as fallback. Control mouse, keyboard, find elements by name/role, and wait for conditions.
 
 ## Overview
 
-This skill provides desktop-level GUI automation capabilities for Ubuntu systems running X11. It bridges the gap between browser automation tools (like Playwright) and native desktop interactions, enabling control of:
+This skill enables "human-level" desktop control by finding UI elements semantically rather than by coordinates. The primary method uses the AT-SPI accessibility tree (which knows element roles, states, and actions), with OCR as a fallback for elements not exposed through accessibility APIs.
 
-- Wallet popups (MetaMask, etc.)
-- Browser extension windows
-- Native desktop applications
-- Any GUI element visible on screen
+**Capabilities:**
+- Find and click buttons, inputs, links by name
+- Wait for elements or text to appear/disappear
+- List all interactive elements in an application
+- Fall back to OCR when AT-SPI can't find elements
+- Traditional coordinate-based clicking still available
 
 ## Prerequisites
 
-Before using this skill, ensure the required packages are installed:
+Before using this skill, run the installer:
 
 ```bash
-sudo apt-get install -y xdotool scrot imagemagick
+bash install.sh
 ```
 
-## Tool Reference
-
-All commands are executed via the Python script. The default X display is `:10.0`. Override with `--display` flag on any command.
-
-### screenshot
-
-Capture the current desktop state as a PNG image.
+For headless Xvfb sessions, set up the accessibility environment:
 
 ```bash
-python3 scripts/desktop.py screenshot [--output PATH] [--display DISPLAY]
+export GTK_MODULES=gail:atk-bridge
+export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+/usr/lib/at-spi2-core/at-spi-bus-launcher &
 ```
 
-**Parameters:**
-- `--output` (optional): File path to save PNG. If omitted, returns base64-encoded image.
-- `--display` (optional): X display to capture (default: `:10.0`)
+For Chrome/Chromium, add `--force-renderer-accessibility` flag.
 
-**Response:**
-```json
-// With --output specified:
-{ "path": "/tmp/screenshot.png", "size": 245678 }
-
-// Without --output:
-{ "base64": "iVBORw0KGgo...", "size": 245678 }
-```
-
-**Use Cases:**
-- Capture initial state before performing actions
-- Identify coordinates for click targets
-- Verify action completion
-- Debug automation failures
-
----
-
-### click
-
-Perform a mouse click at specific screen coordinates.
+Check that everything is working:
 
 ```bash
-python3 scripts/desktop.py click X Y [--right] [--middle] [--double] [--delay SECONDS]
+python3 scripts/desktop.py status
 ```
 
-**Parameters:**
-- `X` (required): X coordinate in pixels from screen left edge
-- `Y` (required): Y coordinate in pixels from screen top edge
-- `--right` (optional): Perform right-click instead of left
-- `--middle` (optional): Perform middle-click instead of left
-- `--double` (optional): Perform double-click
-- `--delay` (optional): Seconds to wait before clicking (for animations)
+## Command Reference
 
-**Response:**
-```json
-{ "clicked": { "x": 500, "y": 300, "button": "left", "double": false } }
-```
+### Semantic Commands (Recommended)
 
-**Important Notes:**
-- Coordinates are screen-absolute, not window-relative
-- Always screenshot first to determine correct coordinates
-- Use `--delay` when waiting for UI animations to complete
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `find-element` | Find UI element by name/role | `--name "Confirm" --role button` |
+| `find-text` | Find text on screen (OCR) | `find-text "I have an existing wallet"` |
+| `click-element` | Click element by name/role | `--name "Next" --verify` |
+| `wait-for` | Wait for element/text to appear | `--text "Success" --timeout 30` |
+| `list-elements` | List interactive elements | `--app "Firefox" --role button` |
+| `status` | Check AT-SPI/OCR availability | |
 
----
+### Coordinate Commands (Fallback)
 
-### type
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `screenshot` | Capture desktop | `--output /tmp/screen.png` |
+| `click` | Click at coordinates | `click 500 300 --double` |
+| `type` | Type text | `type "hello@example.com"` |
+| `key` | Press key combination | `key "ctrl+a"` |
+| `move` | Move mouse | `move 500 300` |
+| `active` | Get active window | |
+| `find-window` | Find windows by name | `find-window "MetaMask"` |
+| `focus` | Focus window | `focus "Chrome"` |
+| `position` | Get mouse position | |
+| `windows` | List all windows | |
 
-Type text using keyboard simulation.
+## Recommended Workflows
 
-```bash
-python3 scripts/desktop.py type "TEXT" [--type-delay MS]
-```
+### Strategy: Semantic First, Coordinates as Fallback
 
-**Parameters:**
-- `TEXT` (required): Text string to type
-- `--type-delay` (optional): Milliseconds between keystrokes (default: 12)
-
-**Response:**
-```json
-{ "typed": "0x1234abcd..." }
-```
-
-**Use Cases:**
-- Enter wallet addresses
-- Input passwords (ensure security context)
-- Fill form fields
-- Type search queries
-
----
-
-### key
-
-Press a key or key combination.
-
-```bash
-python3 scripts/desktop.py key "KEYS"
-```
-
-**Parameters:**
-- `KEYS` (required): Key(s) to press in xdotool format
-
-**Common Key Names:**
-| Category | Keys |
-|----------|------|
-| Navigation | `Return`, `Tab`, `Escape`, `BackSpace`, `Delete` |
-| Arrows | `Up`, `Down`, `Left`, `Right` |
-| Modifiers | `ctrl`, `alt`, `shift`, `super` |
-| Combinations | `ctrl+a`, `ctrl+c`, `ctrl+v`, `ctrl+shift+t`, `alt+Tab` |
-
-**Response:**
-```json
-{ "pressed": "ctrl+a" }
-```
-
----
-
-### move
-
-Move the mouse cursor without clicking.
-
-```bash
-python3 scripts/desktop.py move X Y
-```
-
-**Parameters:**
-- `X` (required): Target X coordinate
-- `Y` (required): Target Y coordinate
-
-**Response:**
-```json
-{ "moved": { "x": 500, "y": 300 } }
-```
-
----
-
-### active
-
-Get information about the currently active (focused) window.
-
-```bash
-python3 scripts/desktop.py active
-```
-
-**Response:**
-```json
-{
-  "window_id": "71303172",
-  "name": "FluxPoint - Google Chrome",
-  "geometry": { "x": 10, "y": 37, "width": 1288, "height": 1054 }
-}
-```
-
-**Use Cases:**
-- Verify correct window is focused before actions
-- Get window dimensions for relative positioning
-- Debug window focus issues
-
----
-
-### find
-
-Search for windows by name (partial match).
-
-```bash
-python3 scripts/desktop.py find "NAME"
-```
-
-**Parameters:**
-- `NAME` (required): Window name substring to search for
-
-**Response:**
-```json
-{
-  "windows": [
-    { "window_id": "71303172", "name": "MetaMask Notification" },
-    { "window_id": "71303180", "name": "MetaMask" }
-  ]
-}
-```
-
----
-
-### focus
-
-Activate (focus) a window by name.
-
-```bash
-python3 scripts/desktop.py focus "NAME"
-```
-
-**Parameters:**
-- `NAME` (required): Window name to focus (uses first partial match)
-
-**Response:**
-```json
-{ "focused": "71303172" }
-```
-
----
-
-### position
-
-Get the current mouse cursor position.
-
-```bash
-python3 scripts/desktop.py position
-```
-
-**Response:**
-```json
-{ "position": { "x": 512, "y": 384 } }
-```
-
----
-
-### windows
-
-List all windows on the desktop.
-
-```bash
-python3 scripts/desktop.py windows
-```
-
-**Response:**
-```json
-{
-  "windows": [
-    { "window_id": "71303172", "name": "Terminal" },
-    { "window_id": "71303180", "name": "Google Chrome" },
-    { "window_id": "71303188", "name": "MetaMask Notification" }
-  ]
-}
-```
-
----
-
-## Common Workflows
+1. **Always start with `status`** to verify AT-SPI and OCR are available
+2. **Try semantic commands first** (`click-element`, `wait-for`)
+3. **Fall back to `find-text`** if AT-SPI doesn't expose the element
+4. **Use coordinates only** when semantic methods fail
 
 ### Wallet Transaction Approval
 
 ```bash
-# 1. Capture current state
-python3 scripts/desktop.py screenshot --output /tmp/before.png
+# 1. Check status
+python3 scripts/desktop.py status
 
-# 2. Find and focus the wallet popup
-python3 scripts/desktop.py find "MetaMask"
+# 2. Focus wallet window
 python3 scripts/desktop.py focus "MetaMask"
 
-# 3. Click the "Confirm" button (coordinates from screenshot analysis)
-python3 scripts/desktop.py click 250 450
+# 3. Wait for Confirm button to appear
+python3 scripts/desktop.py wait-for --name "Confirm" --role button --timeout 30
 
-# 4. Wait and verify
-sleep 1
-python3 scripts/desktop.py screenshot --output /tmp/after.png
+# 4. Click Confirm with verification
+python3 scripts/desktop.py click-element --name "Confirm" --verify
+
+# 5. Wait for success (OCR for status text)
+python3 scripts/desktop.py wait-for --text "Transaction submitted" --timeout 60
+```
+
+### Wallet Import Flow
+
+```bash
+# 1. Find and click import option
+python3 scripts/desktop.py click-element --name "I already have a wallet"
+
+# 2. Wait for input field
+python3 scripts/desktop.py wait-for --role entry --timeout 10
+
+# 3. Type seed phrase
+python3 scripts/desktop.py type "word1 word2 word3..."
+
+# 4. Click continue
+python3 scripts/desktop.py click-element --name "Import"
+
+# 5. Wait for completion
+python3 scripts/desktop.py wait-for --text "Wallet imported" --timeout 30
 ```
 
 ### Browser Extension Interaction
 
 ```bash
-# 1. Screenshot to find extension popup
-python3 scripts/desktop.py screenshot --output /tmp/extension.png
+# 1. List all buttons to understand the UI
+python3 scripts/desktop.py list-elements --app "Chrome" --role button
 
-# 2. Click extension icon (example coordinates)
-python3 scripts/desktop.py click 1200 50
+# 2. Click extension button by name
+python3 scripts/desktop.py click-element --name "Connect wallet" --app "Chrome"
 
-# 3. Wait for popup to appear
-sleep 0.5
+# 3. Wait for popup
+python3 scripts/desktop.py wait-for --name "Approve" --timeout 10
 
-# 4. Screenshot popup and locate button
-python3 scripts/desktop.py screenshot --output /tmp/popup.png
-
-# 5. Click desired button
-python3 scripts/desktop.py click 1150 200
+# 4. Click approve
+python3 scripts/desktop.py click-element --name "Approve"
 ```
 
-### Form Filling
+### Handling Unknown UIs (Discovery Mode)
+
+When you don't know the element names:
 
 ```bash
-# Focus input field (click on it)
-python3 scripts/desktop.py click 400 300
+# 1. List all interactive elements
+python3 scripts/desktop.py list-elements --app "AppName"
 
-# Select all existing text
-python3 scripts/desktop.py key "ctrl+a"
+# 2. If AT-SPI returns nothing, screenshot and use OCR
+python3 scripts/desktop.py screenshot --output /tmp/discovery.png
+python3 scripts/desktop.py find-text "button text" --all
 
-# Type new value
-python3 scripts/desktop.py type "0x742d35Cc6634C0532925a3b844Bc9e7595f..."
-
-# Move to next field
-python3 scripts/desktop.py key "Tab"
-
-# Type next value
-python3 scripts/desktop.py type "1.5"
-
-# Submit
-python3 scripts/desktop.py key "Return"
+# 3. Once you find the text, click it
+python3 scripts/desktop.py click-element --name "button text"
 ```
 
----
+## How Element Finding Works
+
+```
+User: click-element --name "Confirm"
+           │
+           ▼
+    ┌─────────────┐
+    │ Try AT-SPI  │ ◄─ Fast, reliable, knows element roles
+    └──────┬──────┘
+           │
+    Found? │
+           │
+    ┌──────┴──────┐
+    │Yes          │No
+    ▼             ▼
+  Click      ┌─────────────┐
+  element    │ Fallback:   │
+             │ Screenshot  │
+             │ + OCR       │
+             └──────┬──────┘
+                    │
+             Found? │
+                    │
+             ┌──────┴──────┐
+             │Yes          │No
+             ▼             ▼
+           Click        Error
+           at OCR
+           coords
+```
+
+## Element Information
+
+### AT-SPI Elements
+
+AT-SPI elements include rich metadata:
+
+```json
+{
+  "name": "Confirm",
+  "bounds": { "x": 400, "y": 300, "width": 100, "height": 30 },
+  "center": { "x": 450, "y": 315 },
+  "role": "push button",
+  "source": "atspi",
+  "states": ["visible", "showing", "enabled", "focusable"],
+  "actions": ["click"],
+  "app_name": "Firefox",
+  "visible": true,
+  "enabled": true,
+  "clickable": true
+}
+```
+
+### OCR Elements
+
+OCR elements have position and confidence:
+
+```json
+{
+  "name": "Confirm",
+  "bounds": { "x": 402, "y": 298, "width": 96, "height": 24 },
+  "center": { "x": 450, "y": 310 },
+  "source": "ocr",
+  "confidence": 95.2
+}
+```
+
+## Common Element Roles
+
+| Role | Description | Examples |
+|------|-------------|----------|
+| `push button` | Clickable button | "Submit", "Cancel" |
+| `toggle button` | On/off button | Theme toggle |
+| `entry` | Text input field | Email, password |
+| `combo box` | Dropdown | Currency selector |
+| `check box` | Checkbox | "Remember me" |
+| `radio button` | Radio option | Payment method |
+| `link` | Clickable link | "Terms of Service" |
+| `menu item` | Menu option | "Settings" |
+| `slider` | Range slider | Volume control |
 
 ## Troubleshooting
 
-### Common Issues
+### AT-SPI Not Available
 
-**"Cannot open display"**
-- Ensure X server is running
-- Check DISPLAY environment variable matches `--display` flag
-- For remote sessions, ensure X forwarding is enabled
+```bash
+# Check if AT-SPI is running
+python3 scripts/desktop.py status
 
-**"No windows found"**
-- Window may not be open yet - add delay
-- Check exact window name with `windows` command
-- Try broader search term with `find`
+# If not, start the bus launcher
+/usr/lib/at-spi2-core/at-spi-bus-launcher &
 
-**Click not registering**
-- Verify coordinates with screenshot
-- Window may need focus first
-- Add `--delay` for animation completion
+# Set environment variables
+export GTK_MODULES=gail:atk-bridge
+export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+```
 
-**Typing produces wrong characters**
-- Check keyboard layout settings
-- Increase `--type-delay` for slower systems
+### Element Not Found via AT-SPI
 
-### Best Practices
+Some applications don't expose elements via AT-SPI. Use OCR:
 
-1. **Always screenshot first** - Never guess coordinates
-2. **Focus before clicking** - Ensure target window is active
-3. **Use delays appropriately** - Allow time for UI transitions
-4. **Verify with screenshots** - Confirm actions completed successfully
-5. **Handle errors gracefully** - Check for error responses in JSON output
+```bash
+# Try OCR-only search
+python3 scripts/desktop.py find-text "Button Label"
+```
 
----
+### OCR Confidence Too Low
+
+If OCR finds text with low confidence:
+
+1. Take a screenshot and check the image quality
+2. Lower the confidence threshold (code modification needed)
+3. Try exact matching: `--exact`
+
+### Chrome Extensions Not Accessible
+
+Chrome extensions often don't expose accessibility info. For extension popups:
+
+1. Screenshot first to identify coordinates
+2. Use `find-text` for OCR-based finding
+3. Fall back to coordinate clicking if needed
+
+### Wait Timeout
+
+If `wait-for` times out:
+
+1. Increase timeout: `--timeout 60`
+2. Check that the element name/text is correct
+3. Verify the window is focused
+4. Try `list-elements` to see what's available
+
+## Best Practices
+
+1. **Always check status first** - Verify AT-SPI and OCR are working before starting automation
+
+2. **Prefer semantic over coordinates** - `click-element` adapts to UI changes, coordinates don't
+
+3. **Use wait-for instead of sleep** - Polling is more reliable than fixed delays
+
+4. **Specify role when ambiguous** - If "Confirm" appears as both text and button, use `--role button`
+
+5. **Use --verify for critical actions** - Adds OCR verification before clicking to prevent misclicks
+
+6. **List elements for discovery** - When automating a new UI, start by listing available elements
+
+7. **Fall back gracefully** - If semantic methods fail, screenshot and use coordinates
 
 ## References
 
+- [AT-SPI Documentation](https://www.freedesktop.org/wiki/Accessibility/AT-SPI2/)
+- [pyatspi API](https://lazka.github.io/pgi-docs/Atspi-2.0/)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
 - [xdotool Documentation](https://github.com/jordansissel/xdotool)
-- [scrot Screenshot Utility](https://github.com/resurrecting-open-source-projects/scrot)

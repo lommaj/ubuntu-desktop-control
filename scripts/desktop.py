@@ -1,202 +1,290 @@
 #!/usr/bin/env python3
 """
-Desktop control script using xdotool and scrot.
+Desktop control script with semantic element targeting.
+
+Provides AT-SPI accessibility tree and OCR-based element finding
+with xdotool for mouse/keyboard control.
+
 For GUI automation (wallet popups, browser extensions, etc.)
 """
 
 import argparse
-import base64
 import json
-import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-DEFAULT_DISPLAY = ":10.0"
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from desktop_control.core import DEFAULT_DISPLAY
+from desktop_control import xdotool
+from desktop_control import screenshot as screenshot_module
+from desktop_control import atspi
+from desktop_control import ocr
+from desktop_control.finder import ElementFinder
+from desktop_control.waiter import Waiter, WaitTimeout
 
 
-def run_cmd(cmd: list[str], display: str = None) -> tuple[int, str, str]:
-    """Run a command with optional DISPLAY override."""
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+def cmd_screenshot(args) -> dict:
+    """Take a screenshot."""
+    return screenshot_module.screenshot(
+        output=args.output,
+        display=args.display
+    )
 
 
-def screenshot(output: str = None, display: str = DEFAULT_DISPLAY) -> dict:
-    """Take a screenshot and return base64 or save to file."""
-    temp_path = output or f"/tmp/screenshot_{int(time.time())}.png"
-    
-    code, stdout, stderr = run_cmd(["scrot", "-o", temp_path], display)
-    if code != 0:
-        return {"error": f"Screenshot failed: {stderr}"}
-    
-    path = Path(temp_path)
-    if not path.exists():
-        return {"error": "Screenshot file not created"}
-    
-    result = {
-        "path": str(path),
-        "size": path.stat().st_size,
-    }
-    
-    if not output:
-        # Return base64 if no output path specified
-        with open(path, "rb") as f:
-            result["base64"] = base64.b64encode(f.read()).decode()
-        # Clean up temp file
-        path.unlink()
-        del result["path"]
-    
-    return result
-
-
-def click(x: int, y: int, button: str = "left", double: bool = False, display: str = DEFAULT_DISPLAY) -> dict:
+def cmd_click(args) -> dict:
     """Click at coordinates."""
-    # Move to position first
-    code, _, stderr = run_cmd(["xdotool", "mousemove", "--sync", str(x), str(y)], display)
-    if code != 0:
-        return {"error": f"Mouse move failed: {stderr}"}
-    
-    # Determine click command
-    button_map = {"left": "1", "middle": "2", "right": "3"}
-    btn = button_map.get(button, "1")
-    
-    if double:
-        cmd = ["xdotool", "click", "--repeat", "2", "--delay", "100", btn]
-    else:
-        cmd = ["xdotool", "click", btn]
-    
-    code, _, stderr = run_cmd(cmd, display)
-    if code != 0:
-        return {"error": f"Click failed: {stderr}"}
-    
-    return {"clicked": {"x": x, "y": y, "button": button, "double": double}}
+    button = "right" if args.right else ("middle" if args.middle else "left")
+    return xdotool.click(
+        args.x, args.y,
+        button=button,
+        double=args.double,
+        display=args.display
+    )
 
 
-def type_text(text: str, delay: int = 12, display: str = DEFAULT_DISPLAY) -> dict:
-    """Type text with optional delay between keystrokes."""
-    code, _, stderr = run_cmd(["xdotool", "type", "--delay", str(delay), "--", text], display)
-    if code != 0:
-        return {"error": f"Type failed: {stderr}"}
-    return {"typed": text}
+def cmd_type(args) -> dict:
+    """Type text."""
+    return xdotool.type_text(
+        args.text,
+        delay=args.type_delay,
+        display=args.display
+    )
 
 
-def key(keys: str, display: str = DEFAULT_DISPLAY) -> dict:
-    """Press key combination (e.g., 'ctrl+a', 'Return', 'Tab')."""
-    code, _, stderr = run_cmd(["xdotool", "key", "--", keys], display)
-    if code != 0:
-        return {"error": f"Key press failed: {stderr}"}
-    return {"pressed": keys}
+def cmd_key(args) -> dict:
+    """Press key combination."""
+    return xdotool.key(args.keys, display=args.display)
 
 
-def move(x: int, y: int, display: str = DEFAULT_DISPLAY) -> dict:
-    """Move mouse to coordinates."""
-    code, _, stderr = run_cmd(["xdotool", "mousemove", "--sync", str(x), str(y)], display)
-    if code != 0:
-        return {"error": f"Mouse move failed: {stderr}"}
-    return {"moved": {"x": x, "y": y}}
+def cmd_move(args) -> dict:
+    """Move mouse."""
+    return xdotool.move(args.x, args.y, display=args.display)
 
 
-def get_active_window(display: str = DEFAULT_DISPLAY) -> dict:
+def cmd_active(args) -> dict:
     """Get active window info."""
-    code, window_id, stderr = run_cmd(["xdotool", "getactivewindow"], display)
-    if code != 0:
-        return {"error": f"Get active window failed: {stderr}"}
-    
-    # Get window name
-    code, name, _ = run_cmd(["xdotool", "getwindowname", window_id], display)
-    
-    # Get window geometry
-    code, geom, _ = run_cmd(["xdotool", "getwindowgeometry", "--shell", window_id], display)
-    
-    geometry = {}
-    for line in geom.split("\n"):
-        if "=" in line:
-            k, v = line.split("=", 1)
-            geometry[k.lower()] = int(v) if v.isdigit() else v
-    
+    return xdotool.get_active_window(display=args.display)
+
+
+def cmd_find_window(args) -> dict:
+    """Find windows by name."""
+    return xdotool.find_window(args.name, display=args.display)
+
+
+def cmd_focus(args) -> dict:
+    """Focus window by name."""
+    return xdotool.focus_window(args.name, display=args.display)
+
+
+def cmd_position(args) -> dict:
+    """Get mouse position."""
+    return xdotool.get_mouse_position(display=args.display)
+
+
+def cmd_windows(args) -> dict:
+    """List all windows."""
+    return xdotool.list_windows(display=args.display)
+
+
+def cmd_find_element(args) -> dict:
+    """Find UI element via AT-SPI with OCR fallback."""
+    finder = ElementFinder(display=args.display)
+
+    if args.all:
+        elements = finder.find_all(
+            name=args.name,
+            role=args.role,
+            app=args.app,
+            clickable_only=args.clickable,
+            max_results=args.max_results
+        )
+        return {
+            "elements": [e.to_dict() for e in elements],
+            "count": len(elements)
+        }
+    else:
+        element = finder.find(
+            name=args.name,
+            role=args.role,
+            app=args.app
+        )
+        if element:
+            return {"element": element.to_dict()}
+        return {"error": f"Element not found", "name": args.name, "role": args.role}
+
+
+def cmd_find_text(args) -> dict:
+    """Find text on screen via OCR."""
+    finder = ElementFinder(display=args.display, use_atspi=False)
+
+    if args.all:
+        elements = finder.find_all_text(
+            args.text,
+            exact=args.exact,
+            case_sensitive=args.case_sensitive,
+            max_results=args.max_results
+        )
+        return {
+            "matches": [e.to_dict() for e in elements],
+            "count": len(elements)
+        }
+    else:
+        element = finder.find_text(
+            args.text,
+            exact=args.exact,
+            case_sensitive=args.case_sensitive
+        )
+        if element:
+            return {"match": element.to_dict()}
+        return {"error": f"Text not found: '{args.text}'"}
+
+
+def cmd_click_element(args) -> dict:
+    """Click element by name/role."""
+    finder = ElementFinder(display=args.display)
+
+    # Find the element
+    element = finder.find(
+        name=args.name,
+        role=args.role,
+        app=args.app
+    )
+
+    if not element:
+        return {"error": f"Element not found", "name": args.name, "role": args.role}
+
+    # Get center coordinates
+    x, y = element.center
+
+    # Optional pre-click verification
+    if args.verify:
+        # Take screenshot and verify text is at expected location
+        img = screenshot_module.screenshot_to_pil(args.display)
+        if img and ocr.is_available():
+            matches = ocr.find_text(img, args.name or "")
+            if not matches:
+                return {
+                    "error": "Pre-click verification failed: text not found",
+                    "element": element.to_dict()
+                }
+
+    # Click at element center
+    button = "right" if args.right else "left"
+    result = xdotool.click(
+        x, y,
+        button=button,
+        double=args.double,
+        display=args.display
+    )
+
+    if "error" in result:
+        return result
+
     return {
-        "window_id": window_id,
-        "name": name,
-        "geometry": geometry
+        "clicked": {
+            "element": element.to_dict(),
+            "x": x,
+            "y": y,
+            "button": button,
+            "double": args.double
+        }
     }
 
 
-def find_window(name: str, display: str = DEFAULT_DISPLAY) -> dict:
-    """Find windows by name (partial match)."""
-    code, window_ids, stderr = run_cmd(["xdotool", "search", "--name", name], display)
-    if code != 0 or not window_ids:
-        return {"error": f"No windows found matching '{name}'", "windows": []}
-    
-    windows = []
-    for wid in window_ids.split("\n"):
-        if wid:
-            code, wname, _ = run_cmd(["xdotool", "getwindowname", wid], display)
-            windows.append({"window_id": wid, "name": wname})
-    
-    return {"windows": windows}
+def cmd_wait_for(args) -> dict:
+    """Wait for element or text to appear."""
+    waiter = Waiter(display=args.display)
+
+    try:
+        if args.text:
+            element = waiter.wait_for_text(
+                args.text,
+                exact=args.exact,
+                timeout=args.timeout
+            )
+        elif args.gone:
+            # Wait for element to disappear
+            waiter.wait_until_gone(
+                name=args.name,
+                text=args.text,
+                timeout=args.timeout
+            )
+            return {"gone": True, "name": args.name or args.text}
+        else:
+            element = waiter.wait_for_element(
+                name=args.name,
+                role=args.role,
+                app=args.app,
+                timeout=args.timeout
+            )
+
+        return {"found": element.to_dict()}
+
+    except WaitTimeout as e:
+        return {"error": str(e), "timeout": True}
 
 
-def focus_window(name: str, display: str = DEFAULT_DISPLAY) -> dict:
-    """Focus a window by name."""
-    code, window_id, stderr = run_cmd(["xdotool", "search", "--name", name], display)
-    if code != 0 or not window_id:
-        return {"error": f"No window found matching '{name}'"}
-    
-    # Take first match
-    wid = window_id.split("\n")[0]
-    code, _, stderr = run_cmd(["xdotool", "windowactivate", "--sync", wid], display)
-    if code != 0:
-        return {"error": f"Focus failed: {stderr}"}
-    
-    return {"focused": wid}
+def cmd_list_elements(args) -> dict:
+    """List interactive elements."""
+    finder = ElementFinder(display=args.display)
+
+    elements = finder.list_interactive(
+        app=args.app,
+        visible_only=not args.include_hidden
+    )
+
+    # Filter by role if specified
+    if args.role:
+        role_lower = args.role.lower()
+        elements = [e for e in elements if role_lower in e.role_name.lower()]
+
+    return {
+        "elements": [e.to_dict() for e in elements[:args.max_results]],
+        "count": len(elements)
+    }
 
 
-def get_mouse_position(display: str = DEFAULT_DISPLAY) -> dict:
-    """Get current mouse position."""
-    code, output, stderr = run_cmd(["xdotool", "getmouselocation", "--shell"], display)
-    if code != 0:
-        return {"error": f"Get position failed: {stderr}"}
-    
-    pos = {}
-    for line in output.split("\n"):
-        if "=" in line:
-            k, v = line.split("=", 1)
-            pos[k.lower()] = int(v) if v.isdigit() else v
-    
-    return {"position": {"x": pos.get("x", 0), "y": pos.get("y", 0)}}
-
-
-def list_windows(display: str = DEFAULT_DISPLAY) -> dict:
-    """List all windows."""
-    code, window_ids, stderr = run_cmd(["xdotool", "search", "--name", ""], display)
-    if code != 0:
-        return {"error": f"List windows failed: {stderr}"}
-    
-    windows = []
-    for wid in window_ids.split("\n"):
-        if wid:
-            code, name, _ = run_cmd(["xdotool", "getwindowname", wid], display)
-            if name:  # Skip windows without names
-                windows.append({"window_id": wid, "name": name})
-    
-    return {"windows": windows}
+def cmd_status(args) -> dict:
+    """Check status of AT-SPI and OCR."""
+    return {
+        "atspi": {
+            "available": atspi.is_available(),
+            "applications": atspi.get_applications() if atspi.is_available() else []
+        },
+        "ocr": {
+            "available": ocr.is_available()
+        },
+        "display": args.display
+    }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Desktop control via xdotool")
-    parser.add_argument("--display", default=DEFAULT_DISPLAY, help="X display to use")
-    parser.add_argument("--delay", type=float, default=0, help="Delay before action (seconds)")
-    
+    parser = argparse.ArgumentParser(
+        description="Desktop control with semantic element targeting"
+    )
+    parser.add_argument(
+        "--display",
+        default=DEFAULT_DISPLAY,
+        help="X display to use (default: :10.0)"
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0,
+        help="Delay before action (seconds)"
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
+
+    # ===== Original commands =====
+
     # Screenshot
     p_screenshot = subparsers.add_parser("screenshot", help="Take a screenshot")
-    p_screenshot.add_argument("--output", "-o", help="Output file path (returns base64 if not set)")
-    
+    p_screenshot.add_argument("--output", "-o", help="Output file path")
+
     # Click
     p_click = subparsers.add_parser("click", help="Click at coordinates")
     p_click.add_argument("x", type=int, help="X coordinate")
@@ -204,69 +292,134 @@ def main():
     p_click.add_argument("--right", action="store_true", help="Right click")
     p_click.add_argument("--middle", action="store_true", help="Middle click")
     p_click.add_argument("--double", action="store_true", help="Double click")
-    
+
     # Type
     p_type = subparsers.add_parser("type", help="Type text")
     p_type.add_argument("text", help="Text to type")
-    p_type.add_argument("--type-delay", type=int, default=12, help="Delay between keystrokes (ms)")
-    
+    p_type.add_argument("--type-delay", type=int, default=12, help="Keystroke delay (ms)")
+
     # Key
     p_key = subparsers.add_parser("key", help="Press key combination")
     p_key.add_argument("keys", help="Key(s) to press (e.g., 'Return', 'ctrl+a')")
-    
+
     # Move
     p_move = subparsers.add_parser("move", help="Move mouse")
     p_move.add_argument("x", type=int, help="X coordinate")
     p_move.add_argument("y", type=int, help="Y coordinate")
-    
+
     # Active window
     subparsers.add_parser("active", help="Get active window info")
-    
-    # Find window
-    p_find = subparsers.add_parser("find", help="Find windows by name")
-    p_find.add_argument("name", help="Window name to search for")
-    
+
+    # Find window (renamed from 'find' to avoid conflict)
+    p_find_window = subparsers.add_parser("find-window", help="Find windows by name")
+    p_find_window.add_argument("name", help="Window name to search")
+
     # Focus window
     p_focus = subparsers.add_parser("focus", help="Focus window by name")
     p_focus.add_argument("name", help="Window name to focus")
-    
+
     # Mouse position
     subparsers.add_parser("position", help="Get mouse position")
-    
+
     # List windows
     subparsers.add_parser("windows", help="List all windows")
-    
+
+    # ===== New semantic commands =====
+
+    # Find element (AT-SPI + OCR)
+    p_find_elem = subparsers.add_parser(
+        "find-element",
+        help="Find UI element via AT-SPI with OCR fallback"
+    )
+    p_find_elem.add_argument("--name", "-n", help="Element name/text to find")
+    p_find_elem.add_argument("--role", "-r", help="Element role (button, entry, etc.)")
+    p_find_elem.add_argument("--app", "-a", help="Application name filter")
+    p_find_elem.add_argument("--all", action="store_true", help="Find all matches")
+    p_find_elem.add_argument("--clickable", action="store_true", help="Only clickable elements")
+    p_find_elem.add_argument("--max-results", type=int, default=50, help="Max results")
+
+    # Find text (OCR only)
+    p_find_text = subparsers.add_parser(
+        "find-text",
+        help="Find text on screen via OCR"
+    )
+    p_find_text.add_argument("text", help="Text to find")
+    p_find_text.add_argument("--exact", action="store_true", help="Exact match")
+    p_find_text.add_argument("--case-sensitive", action="store_true", help="Case sensitive")
+    p_find_text.add_argument("--all", action="store_true", help="Find all matches")
+    p_find_text.add_argument("--max-results", type=int, default=50, help="Max results")
+
+    # Click element
+    p_click_elem = subparsers.add_parser(
+        "click-element",
+        help="Click element by name/role"
+    )
+    p_click_elem.add_argument("--name", "-n", help="Element name/text")
+    p_click_elem.add_argument("--role", "-r", help="Element role")
+    p_click_elem.add_argument("--app", "-a", help="Application name filter")
+    p_click_elem.add_argument("--right", action="store_true", help="Right click")
+    p_click_elem.add_argument("--double", action="store_true", help="Double click")
+    p_click_elem.add_argument("--verify", action="store_true", help="Verify before click")
+
+    # Wait for
+    p_wait = subparsers.add_parser(
+        "wait-for",
+        help="Wait for element or text to appear"
+    )
+    p_wait.add_argument("--name", "-n", help="Element name (AT-SPI + OCR)")
+    p_wait.add_argument("--role", "-r", help="Element role (AT-SPI only)")
+    p_wait.add_argument("--app", "-a", help="Application name filter")
+    p_wait.add_argument("--text", "-t", help="Text to find (OCR only)")
+    p_wait.add_argument("--exact", action="store_true", help="Exact text match")
+    p_wait.add_argument("--gone", action="store_true", help="Wait until element/text disappears")
+    p_wait.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds")
+
+    # List elements
+    p_list = subparsers.add_parser(
+        "list-elements",
+        help="List interactive elements"
+    )
+    p_list.add_argument("--app", "-a", help="Application name filter")
+    p_list.add_argument("--role", "-r", help="Filter by role")
+    p_list.add_argument("--include-hidden", action="store_true", help="Include hidden elements")
+    p_list.add_argument("--max-results", type=int, default=100, help="Max results")
+
+    # Status check
+    subparsers.add_parser("status", help="Check AT-SPI and OCR status")
+
+    # Parse arguments
     args = parser.parse_args()
-    
+
     # Apply delay if specified
     if args.delay > 0:
         time.sleep(args.delay)
-    
-    # Execute command
-    if args.command == "screenshot":
-        result = screenshot(args.output, args.display)
-    elif args.command == "click":
-        button = "right" if args.right else ("middle" if args.middle else "left")
-        result = click(args.x, args.y, button, args.double, args.display)
-    elif args.command == "type":
-        result = type_text(args.text, args.type_delay, args.display)
-    elif args.command == "key":
-        result = key(args.keys, args.display)
-    elif args.command == "move":
-        result = move(args.x, args.y, args.display)
-    elif args.command == "active":
-        result = get_active_window(args.display)
-    elif args.command == "find":
-        result = find_window(args.name, args.display)
-    elif args.command == "focus":
-        result = focus_window(args.name, args.display)
-    elif args.command == "position":
-        result = get_mouse_position(args.display)
-    elif args.command == "windows":
-        result = list_windows(args.display)
+
+    # Command dispatch
+    commands = {
+        "screenshot": cmd_screenshot,
+        "click": cmd_click,
+        "type": cmd_type,
+        "key": cmd_key,
+        "move": cmd_move,
+        "active": cmd_active,
+        "find-window": cmd_find_window,
+        "focus": cmd_focus,
+        "position": cmd_position,
+        "windows": cmd_windows,
+        "find-element": cmd_find_element,
+        "find-text": cmd_find_text,
+        "click-element": cmd_click_element,
+        "wait-for": cmd_wait_for,
+        "list-elements": cmd_list_elements,
+        "status": cmd_status,
+    }
+
+    handler = commands.get(args.command)
+    if handler:
+        result = handler(args)
     else:
         result = {"error": f"Unknown command: {args.command}"}
-    
+
     print(json.dumps(result, indent=2))
     sys.exit(0 if "error" not in result else 1)
 

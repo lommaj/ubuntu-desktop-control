@@ -1,0 +1,13 @@
+# Desktop Control Dependencies
+# Install with: pip3 install -r requirements.txt
+
+# AT-SPI accessibility (also needs apt packages)
+PyGObject>=3.42.0
+
+# OCR support
+pytesseract>=0.3.10
+Pillow>=9.0.0
+
+# Image preprocessing (optional, improves OCR accuracy)
+opencv-python-headless>=4.5.0
+numpy>=1.21.0
