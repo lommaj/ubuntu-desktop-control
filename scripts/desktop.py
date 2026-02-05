@@ -24,6 +24,8 @@ from desktop_control import atspi
 from desktop_control import ocr
 from desktop_control.finder import ElementFinder
 from desktop_control.waiter import Waiter, WaitTimeout
+from desktop_control import cache as element_cache
+from desktop_control import annotate
 
 
 def cmd_screenshot(args) -> dict:
@@ -35,8 +37,18 @@ def cmd_screenshot(args) -> dict:
 
 
 def cmd_click(args) -> dict:
-    """Click at coordinates."""
+    """Click at coordinates (pixel or percentage)."""
     button = "right" if args.right else ("middle" if args.middle else "left")
+
+    # Check if percentage coordinates are provided
+    if args.x_percent is not None and args.y_percent is not None:
+        return xdotool.click_percent(
+            args.x_percent, args.y_percent,
+            button=button,
+            double=args.double,
+            display=args.display
+        )
+
     return xdotool.click(
         args.x, args.y,
         button=button,
@@ -261,6 +273,189 @@ def cmd_status(args) -> dict:
     }
 
 
+def cmd_screenshot_annotated(args) -> dict:
+    """Take annotated screenshot with numbered element markers."""
+    from PIL import Image
+    import os
+
+    # Get screen size for cache
+    screen_size = xdotool.get_screen_size(args.display)
+    if screen_size == (0, 0):
+        return {"error": "Failed to get screen dimensions"}
+
+    # Take screenshot
+    img = screenshot_module.screenshot_to_pil(args.display)
+    if img is None:
+        return {"error": "Failed to capture screenshot"}
+
+    # Find interactive elements
+    finder = ElementFinder(display=args.display)
+    elements = finder.list_interactive(
+        app=args.app,
+        visible_only=not args.include_hidden
+    )
+
+    # Filter by role if specified
+    if args.role:
+        role_lower = args.role.lower()
+        elements = [e for e in elements if role_lower in e.role_name.lower()]
+
+    # Limit to max results
+    elements = elements[:args.max_elements]
+
+    if not elements:
+        # Still save screenshot even if no elements
+        output_base = args.output or f"/tmp/screen_{int(time.time())}"
+        orig_path = f"{output_base}.png"
+        img.save(orig_path)
+        return {
+            "screenshot_path": orig_path,
+            "annotated_path": orig_path,
+            "original_size": {"width": img.width, "height": img.height},
+            "display_size": {"width": img.width, "height": img.height},
+            "elements": [],
+            "element_count": 0
+        }
+
+    # Annotate and downsample
+    max_w = args.max_width or 1280
+    max_h = args.max_height or 720
+    _, annotated_img, scale = annotate.annotate_screenshot(
+        img, elements, max_w, max_h
+    )
+
+    # Store elements in cache
+    element_cache.store_elements(elements, screen_size)
+
+    # Save images
+    output_base = args.output or f"/tmp/screen_{int(time.time())}"
+    orig_path = f"{output_base}.png"
+    annotated_path = f"{output_base}_annotated.png"
+
+    img.save(orig_path)
+    annotated_img.save(annotated_path)
+
+    # Build element list with IDs and percentage coordinates
+    element_list = []
+    for idx, elem in enumerate(elements, start=1):
+        elem_dict = elem.to_dict()
+        elem_dict["id"] = idx
+        # Add percentage coordinates
+        cx, cy = elem.center
+        elem_dict["x_percent"] = round(cx / screen_size[0], 4) if screen_size[0] > 0 else 0
+        elem_dict["y_percent"] = round(cy / screen_size[1], 4) if screen_size[1] > 0 else 0
+        element_list.append(elem_dict)
+
+    return {
+        "screenshot_path": orig_path,
+        "annotated_path": annotated_path,
+        "original_size": {"width": img.width, "height": img.height},
+        "display_size": {"width": annotated_img.width, "height": annotated_img.height},
+        "scale": round(scale, 4),
+        "elements": element_list,
+        "element_count": len(elements),
+        "cache_ttl": element_cache.ElementCache.TTL
+    }
+
+
+def cmd_click_id(args) -> dict:
+    """Click cached element by ID."""
+    # Check cache validity
+    if not element_cache.is_cache_valid():
+        return {
+            "error": "Element cache expired or empty. Run screenshot-annotated first.",
+            "cache_valid": False
+        }
+
+    # Get element from cache
+    element = element_cache.get_element(args.element_id)
+    if element is None:
+        cached = element_cache.get_all_elements()
+        return {
+            "error": f"Element ID {args.element_id} not found in cache",
+            "available_ids": list(cached.keys()),
+            "cache_valid": True
+        }
+
+    # Get center coordinates
+    x, y = element.center
+
+    # Click at element center
+    button = "right" if args.right else "left"
+    result = xdotool.click(
+        x, y,
+        button=button,
+        double=args.double,
+        display=args.display
+    )
+
+    if "error" in result:
+        return result
+
+    return {
+        "clicked": {
+            "element_id": args.element_id,
+            "element": element.to_dict(),
+            "x": x,
+            "y": y,
+            "button": button,
+            "double": args.double
+        }
+    }
+
+
+def cmd_click_percent(args) -> dict:
+    """Click at percentage-based coordinates."""
+    return xdotool.click_percent(
+        args.x_percent,
+        args.y_percent,
+        button="right" if args.right else ("middle" if args.middle else "left"),
+        double=args.double,
+        display=args.display
+    )
+
+
+def cmd_screen_size(args) -> dict:
+    """Get screen dimensions."""
+    width, height = xdotool.get_screen_size(args.display)
+    if width == 0 or height == 0:
+        return {"error": "Failed to get screen dimensions"}
+    return {"width": width, "height": height}
+
+
+def cmd_cache_status(args) -> dict:
+    """Get element cache status."""
+    cache = element_cache.get_cache()
+    elements = cache.get_all()
+
+    element_list = []
+    for eid, elem in elements.items():
+        elem_dict = elem.to_dict()
+        elem_dict["id"] = eid
+        element_list.append(elem_dict)
+
+    return {
+        "valid": cache.is_valid(),
+        "count": cache.count,
+        "age_seconds": round(cache.age, 2) if cache.is_valid() else None,
+        "ttl_seconds": element_cache.ElementCache.TTL,
+        "screen_size": {"width": cache.screen_size[0], "height": cache.screen_size[1]},
+        "elements": element_list if args.show_elements else None
+    }
+
+
+def cmd_drag(args) -> dict:
+    """Drag from one position to another."""
+    return xdotool.drag(
+        args.start_x,
+        args.start_y,
+        args.end_x,
+        args.end_y,
+        button="right" if args.right else "left",
+        display=args.display
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Desktop control with semantic element targeting"
@@ -287,8 +482,10 @@ def main():
 
     # Click
     p_click = subparsers.add_parser("click", help="Click at coordinates")
-    p_click.add_argument("x", type=int, help="X coordinate")
-    p_click.add_argument("y", type=int, help="Y coordinate")
+    p_click.add_argument("x", type=int, nargs="?", default=0, help="X coordinate (pixels)")
+    p_click.add_argument("y", type=int, nargs="?", default=0, help="Y coordinate (pixels)")
+    p_click.add_argument("--x-percent", type=float, help="X as fraction 0.0-1.0 (overrides x)")
+    p_click.add_argument("--y-percent", type=float, help="Y as fraction 0.0-1.0 (overrides y)")
     p_click.add_argument("--right", action="store_true", help="Right click")
     p_click.add_argument("--middle", action="store_true", help="Middle click")
     p_click.add_argument("--double", action="store_true", help="Double click")
@@ -387,6 +584,56 @@ def main():
     # Status check
     subparsers.add_parser("status", help="Check AT-SPI and OCR status")
 
+    # ===== New annotated screenshot commands =====
+
+    # Screenshot annotated
+    p_screenshot_annotated = subparsers.add_parser(
+        "screenshot-annotated",
+        help="Take annotated screenshot with numbered element markers"
+    )
+    p_screenshot_annotated.add_argument("--output", "-o", help="Output file path (without extension)")
+    p_screenshot_annotated.add_argument("--app", "-a", help="Application name filter")
+    p_screenshot_annotated.add_argument("--role", "-r", help="Filter by role")
+    p_screenshot_annotated.add_argument("--include-hidden", action="store_true", help="Include hidden elements")
+    p_screenshot_annotated.add_argument("--max-elements", type=int, default=50, help="Max elements to annotate")
+    p_screenshot_annotated.add_argument("--max-width", type=int, default=1280, help="Max output width")
+    p_screenshot_annotated.add_argument("--max-height", type=int, default=720, help="Max output height")
+
+    # Click by ID
+    p_click_id = subparsers.add_parser(
+        "click-id",
+        help="Click cached element by ID"
+    )
+    p_click_id.add_argument("element_id", type=int, help="Element ID from screenshot-annotated")
+    p_click_id.add_argument("--right", action="store_true", help="Right click")
+    p_click_id.add_argument("--double", action="store_true", help="Double click")
+
+    # Click by percentage
+    p_click_percent = subparsers.add_parser(
+        "click-percent",
+        help="Click at percentage-based coordinates"
+    )
+    p_click_percent.add_argument("x_percent", type=float, help="X as fraction 0.0-1.0")
+    p_click_percent.add_argument("y_percent", type=float, help="Y as fraction 0.0-1.0")
+    p_click_percent.add_argument("--right", action="store_true", help="Right click")
+    p_click_percent.add_argument("--middle", action="store_true", help="Middle click")
+    p_click_percent.add_argument("--double", action="store_true", help="Double click")
+
+    # Screen size
+    subparsers.add_parser("screen-size", help="Get screen dimensions")
+
+    # Cache status
+    p_cache = subparsers.add_parser("cache-status", help="Get element cache status")
+    p_cache.add_argument("--show-elements", action="store_true", help="Include element details")
+
+    # Drag
+    p_drag = subparsers.add_parser("drag", help="Drag from one position to another")
+    p_drag.add_argument("start_x", type=int, help="Start X coordinate")
+    p_drag.add_argument("start_y", type=int, help="Start Y coordinate")
+    p_drag.add_argument("end_x", type=int, help="End X coordinate")
+    p_drag.add_argument("end_y", type=int, help="End Y coordinate")
+    p_drag.add_argument("--right", action="store_true", help="Right drag")
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -412,6 +659,13 @@ def main():
         "wait-for": cmd_wait_for,
         "list-elements": cmd_list_elements,
         "status": cmd_status,
+        # New annotated screenshot commands
+        "screenshot-annotated": cmd_screenshot_annotated,
+        "click-id": cmd_click_id,
+        "click-percent": cmd_click_percent,
+        "screen-size": cmd_screen_size,
+        "cache-status": cmd_cache_status,
+        "drag": cmd_drag,
     }
 
     handler = commands.get(args.command)

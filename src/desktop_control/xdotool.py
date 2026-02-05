@@ -245,3 +245,149 @@ def list_windows(display: Optional[str] = None) -> dict:
                 })
 
     return {"windows": windows}
+
+
+def get_screen_size(display: Optional[str] = None) -> tuple[int, int]:
+    """
+    Get the screen dimensions.
+
+    Args:
+        display: X display to use
+
+    Returns:
+        Tuple of (width, height) in pixels, or (0, 0) on error
+    """
+    disp = get_display(display)
+    result = run_cmd(["xdotool", "getdisplaygeometry"], disp)
+    if not result.success:
+        return (0, 0)
+
+    try:
+        parts = result.stdout.split()
+        return (int(parts[0]), int(parts[1]))
+    except (ValueError, IndexError):
+        return (0, 0)
+
+
+def click_percent(
+    x_percent: float,
+    y_percent: float,
+    button: str = "left",
+    double: bool = False,
+    display: Optional[str] = None
+) -> dict:
+    """
+    Click at percentage-based screen coordinates.
+
+    Resolution-agnostic clicking using normalized coordinates.
+
+    Args:
+        x_percent: X position as fraction (0.0 = left, 1.0 = right)
+        y_percent: Y position as fraction (0.0 = top, 1.0 = bottom)
+        button: "left", "middle", or "right"
+        double: Whether to double-click
+        display: X display to use
+
+    Returns:
+        Dict with click info including actual pixel coordinates, or error
+    """
+    # Validate percentage values
+    if not (0.0 <= x_percent <= 1.0 and 0.0 <= y_percent <= 1.0):
+        return {
+            "error": "Percentage values must be between 0.0 and 1.0",
+            "x_percent": x_percent,
+            "y_percent": y_percent
+        }
+
+    # Get screen dimensions
+    width, height = get_screen_size(display)
+    if width == 0 or height == 0:
+        return {"error": "Failed to get screen dimensions"}
+
+    # Convert to pixel coordinates
+    x = int(x_percent * width)
+    y = int(y_percent * height)
+
+    # Ensure within bounds
+    x = max(0, min(x, width - 1))
+    y = max(0, min(y, height - 1))
+
+    # Perform the click
+    result = click(x, y, button=button, double=double, display=display)
+
+    if "error" in result:
+        return result
+
+    # Return with additional percentage info
+    return {
+        "clicked": {
+            "x": x,
+            "y": y,
+            "x_percent": x_percent,
+            "y_percent": y_percent,
+            "screen_size": {"width": width, "height": height},
+            "button": button,
+            "double": double
+        }
+    }
+
+
+def drag(
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    button: str = "left",
+    duration: float = 0.5,
+    display: Optional[str] = None
+) -> dict:
+    """
+    Drag from one position to another.
+
+    Args:
+        start_x: Starting X coordinate
+        start_y: Starting Y coordinate
+        end_x: Ending X coordinate
+        end_y: Ending Y coordinate
+        button: "left", "middle", or "right"
+        duration: Duration of drag in seconds (not directly supported, simulated)
+        display: X display to use
+
+    Returns:
+        Dict with drag info or error
+    """
+    disp = get_display(display)
+
+    # Map button name to xdotool button number
+    button_map = {"left": "1", "middle": "2", "right": "3"}
+    btn = button_map.get(button, "1")
+
+    # Move to start position
+    result = run_cmd(["xdotool", "mousemove", "--sync", str(start_x), str(start_y)], disp)
+    if not result.success:
+        return {"error": f"Move to start failed: {result.stderr}"}
+
+    # Press mouse button
+    result = run_cmd(["xdotool", "mousedown", btn], disp)
+    if not result.success:
+        return {"error": f"Mouse down failed: {result.stderr}"}
+
+    # Move to end position
+    result = run_cmd(["xdotool", "mousemove", "--sync", str(end_x), str(end_y)], disp)
+    if not result.success:
+        # Try to release button even if move failed
+        run_cmd(["xdotool", "mouseup", btn], disp)
+        return {"error": f"Move to end failed: {result.stderr}"}
+
+    # Release mouse button
+    result = run_cmd(["xdotool", "mouseup", btn], disp)
+    if not result.success:
+        return {"error": f"Mouse up failed: {result.stderr}"}
+
+    return {
+        "dragged": {
+            "start": {"x": start_x, "y": start_y},
+            "end": {"x": end_x, "y": end_y},
+            "button": button
+        }
+    }
