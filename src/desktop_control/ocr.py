@@ -238,12 +238,17 @@ def find_text(
     if not TESSERACT_AVAILABLE:
         return []
 
+    if not text or not text.strip():
+        return []
+
     # Perform OCR
     result = ocr_image(image, min_confidence=min_confidence)
 
     # Normalize search text
     search_text = text if case_sensitive else text.lower()
     search_words = search_text.split()
+    if not search_words:
+        return []
 
     matches = []
 

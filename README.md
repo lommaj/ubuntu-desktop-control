@@ -58,7 +58,7 @@ python3 scripts/desktop.py focus "MetaMask"
 | `key` | Press key combinations (ctrl+c, alt+Tab, etc.) |
 | `move` | Move mouse cursor without clicking |
 | `active` | Get active window info and geometry |
-| `find` | Search for windows by name |
+| `find-window` | Search for windows by name |
 | `focus` | Activate a window by name |
 | `position` | Get current mouse cursor position |
 | `windows` | List all desktop windows |

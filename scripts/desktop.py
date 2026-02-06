@@ -38,10 +38,18 @@ def cmd_screenshot(args) -> dict:
 
 def cmd_click(args) -> dict:
     """Click at coordinates (pixel or percentage)."""
+    if args.right and args.middle:
+        return {"error": "Choose at most one mouse button: --right or --middle"}
+
+    has_x_percent = args.x_percent is not None
+    has_y_percent = args.y_percent is not None
+    if has_x_percent != has_y_percent:
+        return {"error": "Both --x-percent and --y-percent must be provided together"}
+
     button = "right" if args.right else ("middle" if args.middle else "left")
 
     # Check if percentage coordinates are provided
-    if args.x_percent is not None and args.y_percent is not None:
+    if has_x_percent and has_y_percent:
         return xdotool.click_percent(
             args.x_percent, args.y_percent,
             button=button,
@@ -156,6 +164,9 @@ def cmd_find_text(args) -> dict:
 
 def cmd_click_element(args) -> dict:
     """Click element by name/role."""
+    if not args.name and not args.role:
+        return {"error": "click-element requires at least one selector: --name or --role"}
+
     finder = ElementFinder(display=args.display)
 
     # Find the element
@@ -173,15 +184,27 @@ def cmd_click_element(args) -> dict:
 
     # Optional pre-click verification
     if args.verify:
+        if not ocr.is_available():
+            return {"error": "Pre-click verification requires OCR, but OCR is unavailable"}
+
+        verify_text = (args.name or element.name or "").strip()
+        if not verify_text:
+            return {
+                "error": "Pre-click verification requires text. Provide --name or disable --verify.",
+                "element": element.to_dict()
+            }
+
         # Take screenshot and verify text is at expected location
         img = screenshot_module.screenshot_to_pil(args.display)
-        if img and ocr.is_available():
-            matches = ocr.find_text(img, args.name or "")
+        if img:
+            matches = ocr.find_text(img, verify_text)
             if not matches:
                 return {
                     "error": "Pre-click verification failed: text not found",
                     "element": element.to_dict()
                 }
+        else:
+            return {"error": "Pre-click verification failed: screenshot capture failed"}
 
     # Click at element center
     button = "right" if args.right else "left"
@@ -210,22 +233,46 @@ def cmd_wait_for(args) -> dict:
     """Wait for element or text to appear."""
     waiter = Waiter(display=args.display)
 
+    if args.text and (args.name or args.role or args.app):
+        return {
+            "error": "Use either --text or element selectors (--name/--role/--app), not both"
+        }
+
     try:
-        if args.text:
+        if args.gone:
+            if args.text:
+                waiter.wait_until_gone(
+                    text=args.text,
+                    exact=args.exact,
+                    timeout=args.timeout
+                )
+            else:
+                if not args.name and not args.role:
+                    return {
+                        "error": "wait-for --gone requires --text or at least one of --name/--role"
+                    }
+
+                waiter.wait_until_gone(
+                    name=args.name,
+                    role=args.role,
+                    app=args.app,
+                    timeout=args.timeout
+                )
+
+            # Wait for element to disappear
+            return {"gone": True, "name": args.name or args.text, "role": args.role, "app": args.app}
+        elif args.text:
             element = waiter.wait_for_text(
                 args.text,
                 exact=args.exact,
                 timeout=args.timeout
             )
-        elif args.gone:
-            # Wait for element to disappear
-            waiter.wait_until_gone(
-                name=args.name,
-                text=args.text,
-                timeout=args.timeout
-            )
-            return {"gone": True, "name": args.name or args.text}
         else:
+            if not args.name and not args.role:
+                return {
+                    "error": "wait-for requires --text or at least one of --name/--role"
+                }
+
             element = waiter.wait_for_element(
                 name=args.name,
                 role=args.role,
@@ -367,6 +414,21 @@ def cmd_click_id(args) -> dict:
             "cache_valid": False
         }
 
+    # Ensure screen size is unchanged since cache creation.
+    cache = element_cache.get_cache()
+    expected_size = cache.screen_size
+    current_size = xdotool.get_screen_size(args.display)
+    if current_size == (0, 0):
+        return {"error": "Failed to get current screen dimensions", "cache_valid": False}
+
+    if not cache.check_screen_size(current_size):
+        return {
+            "error": "Screen size changed since cache creation. Run screenshot-annotated again.",
+            "cache_valid": False,
+            "expected_screen_size": {"width": expected_size[0], "height": expected_size[1]},
+            "current_screen_size": {"width": current_size[0], "height": current_size[1]},
+        }
+
     # Get element from cache
     element = element_cache.get_element(args.element_id)
     if element is None:
@@ -406,6 +468,9 @@ def cmd_click_id(args) -> dict:
 
 def cmd_click_percent(args) -> dict:
     """Click at percentage-based coordinates."""
+    if args.right and args.middle:
+        return {"error": "Choose at most one mouse button: --right or --middle"}
+
     return xdotool.click_percent(
         args.x_percent,
         args.y_percent,
