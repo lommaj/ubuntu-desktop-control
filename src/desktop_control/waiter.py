@@ -5,7 +5,7 @@ Provides reliable waiting for UI elements to appear or disappear.
 """
 
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 
 from .element import Element
 from .finder import ElementFinder
@@ -119,7 +119,9 @@ class Waiter:
         self,
         name: Optional[str] = None,
         role: Optional[str] = None,
+        app: Optional[str] = None,
         text: Optional[str] = None,
+        exact: bool = False,
         timeout: float = 30.0
     ) -> bool:
         """
@@ -131,7 +133,9 @@ class Waiter:
         Args:
             name: Element name (AT-SPI with OCR fallback)
             role: Element role (AT-SPI only)
+            app: Application name filter (AT-SPI only)
             text: Text to find (OCR only)
+            exact: Require exact text match (OCR only)
             timeout: Maximum time to wait in seconds
 
         Returns:
@@ -142,9 +146,9 @@ class Waiter:
         """
         def condition():
             if text:
-                elem = self.finder.find_text(text)
+                elem = self.finder.find_text(text, exact=exact)
             else:
-                elem = self.finder.find(name=name, role=role)
+                elem = self.finder.find(name=name, role=role, app=app)
 
             # Return True when element is NOT found (gone)
             return True if elem is None else None
@@ -252,9 +256,9 @@ class Waiter:
 
     def wait_with_callback(
         self,
-        condition_fn: Callable[[], Optional[any]],
+        condition_fn: Callable[[], Optional[Any]],
         timeout: float = 30.0
-    ) -> any:
+    ) -> Any:
         """
         Wait for a custom condition.
 
@@ -276,9 +280,9 @@ class Waiter:
 
     def _poll_until(
         self,
-        condition: Callable[[], Optional[any]],
+        condition: Callable[[], Optional[Any]],
         timeout: float
-    ) -> Optional[any]:
+    ) -> Optional[Any]:
         """
         Poll a condition until it returns a truthy value or timeout.
 
@@ -347,11 +351,14 @@ def wait_for_text(
 
 def wait_until_gone(
     name: Optional[str] = None,
+    role: Optional[str] = None,
+    app: Optional[str] = None,
     text: Optional[str] = None,
+    exact: bool = False,
     timeout: float = 30.0,
     display: Optional[str] = None
 ) -> bool:
     """Wait for element/text to disappear (convenience function)."""
     return get_waiter(display).wait_until_gone(
-        name=name, text=text, timeout=timeout
+        name=name, role=role, app=app, text=text, exact=exact, timeout=timeout
     )

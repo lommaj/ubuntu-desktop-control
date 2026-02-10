@@ -127,10 +127,10 @@ def _get_element_actions(accessible) -> list[str]:
             for i in range(n_actions):
                 action_name = action_iface.get_action_name(i)
                 if action_name:
-                    actions.append(action_name)
+                    actions.append(action_name.lower())
     except Exception:
         pass
-    return actions
+    return list(dict.fromkeys(actions))
 
 
 def _get_element_bounds(accessible) -> tuple[int, int, int, int]:
@@ -292,7 +292,7 @@ def find_elements(
         role: Role name to match (e.g., "button", "text", "entry")
         app: Application name to filter by
         visible_only: Only return visible elements
-        clickable_only: Only return elements with click action
+        clickable_only: Only return elements with interactive actions
         max_results: Maximum number of results to return
 
     Returns:
@@ -304,7 +304,7 @@ def find_elements(
             return False
 
         # Check clickable
-        if clickable_only and "click" not in elem.actions:
+        if clickable_only and not any(a in {"click", "press", "activate"} for a in elem.actions):
             return False
 
         # Check name match

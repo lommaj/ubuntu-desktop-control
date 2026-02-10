@@ -134,6 +134,9 @@ python3 scripts/desktop.py click-element --name "Next" [--role button] [--verify
 | `--double` | flag | No | Double click |
 | `--verify` | flag | No | OCR verify before click |
 
+`click-element` requires at least one selector: `--name` or `--role`.
+When `--verify` is used, OCR must be available and text must be provided (typically via `--name`).
+
 **Returns:**
 ```json
 {
@@ -168,6 +171,9 @@ python3 scripts/desktop.py wait-for --name "Loading" --gone --timeout 30
 | `--exact` | flag | No | Exact text match |
 | `--gone` | flag | No | Wait until disappears |
 | `--timeout` | float | No | Timeout in seconds (default: 30) |
+
+Use either `--text` or element selectors (`--name`, `--role`, `--app`) for a single call, not both.
+For element waits (with or without `--gone`), provide at least one of `--name` or `--role`.
 
 **Returns:**
 ```json

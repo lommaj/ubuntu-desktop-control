@@ -75,7 +75,8 @@ class Element:
         """Check if element has click action."""
         if self.source == ElementSource.OCR:
             return True  # OCR results are assumed clickable
-        return "click" in self.actions or "press" in self.actions
+        normalized = {a.lower() for a in self.actions}
+        return any(a in normalized for a in {"click", "press", "activate"})
 
     @property
     def is_button(self) -> bool:
