@@ -7,7 +7,7 @@
 Desktop GUI automation skill for Claude Code on Ubuntu/X11. Control mouse, keyboard, take screenshots, and manage windows using xdotool and scrot.
 
 ```bash
-npx add-skill lommaj/ubuntu-desktop-control
+npx skills add lommaj/ubuntu-desktop-control
 ```
 
 ## Use Cases
