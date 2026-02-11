@@ -5,6 +5,7 @@ description:
   accessibility tree and OCR fallback. For wallet automation, browser extensions,
   and GUI tasks Playwright can't reach.
 license: MIT
+compatibility: Requires Ubuntu/Debian with X11, Python 3.6+, and system packages (xdotool, scrot, at-spi2-core, tesseract-ocr). Run install.sh for setup.
 metadata:
   author: lommaj
   version: '2.0.0'

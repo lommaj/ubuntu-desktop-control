@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Ubuntu](https://img.shields.io/badge/Platform-Ubuntu%2FX11-orange.svg)](https://ubuntu.com)
-[![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-purple.svg)](https://claude.ai/code)
+[![Agent Skill](https://img.shields.io/badge/Agent-Skill-purple.svg)](https://agentskills.io)
 
 Desktop GUI automation skill for Claude Code on Ubuntu/X11. Control mouse, keyboard, take screenshots, and manage windows using xdotool and scrot.
 
@@ -30,7 +30,7 @@ sudo apt-get install -y xdotool scrot imagemagick
 ### Install Skill
 
 ```bash
-claude skill install lommaj/ubuntu-desktop-control
+npx skills add lommaj/ubuntu-desktop-control
 ```
 
 ## Quick Start
