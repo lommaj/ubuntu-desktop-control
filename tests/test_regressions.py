@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from desktop_control import atspi, ocr
 from desktop_control.element import Element, ElementSource
+from desktop_control.finder import ElementFinder
 
 SCRIPT_PATH = ROOT / "scripts" / "desktop.py"
 
@@ -197,6 +198,60 @@ class CoreBehaviorTests(unittest.TestCase):
             ocr, "ocr_image", side_effect=AssertionError("ocr_image should not be called")
         ):
             self.assertEqual(ocr.find_text(image=None, text="   "), [])
+
+    def test_find_all_skips_ocr_when_atspi_finds_semantic_matches(self):
+        atspi_elem = atspi.ATSPIElement(
+            name="Confirm",
+            role="",
+            role_name="push button",
+            description="",
+            x=10,
+            y=20,
+            width=100,
+            height=30,
+            states=["visible", "showing", "enabled"],
+            actions=["click"],
+            app_name="Demo",
+        )
+
+        with patch.object(atspi, "is_available", return_value=True), patch.object(
+            ocr, "is_available", return_value=True
+        ), patch.object(atspi, "find_elements", return_value=[atspi_elem]) as find_elements, patch.object(
+            ocr, "find_text", side_effect=AssertionError("OCR should be fallback-only when AT-SPI matched")
+        ), patch.object(
+            ElementFinder, "_get_screenshot", side_effect=AssertionError("Screenshot should not be captured")
+        ):
+            results = ElementFinder().find_all(name="Confirm", role="button")
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].name, "Confirm")
+        self.assertEqual(results[0].source, ElementSource.ATSPI)
+        find_elements.assert_called_once()
+
+    def test_find_all_still_uses_ocr_when_atspi_has_no_matches(self):
+        ocr_match = ocr.OCRMatch(
+            text="Confirm",
+            x=10,
+            y=20,
+            width=100,
+            height=30,
+            confidence=92.0,
+        )
+
+        with patch.object(atspi, "is_available", return_value=True), patch.object(
+            ocr, "is_available", return_value=True
+        ), patch.object(atspi, "find_elements", return_value=[]), patch.object(
+            ElementFinder, "_get_screenshot", return_value=object()
+        ) as get_screenshot, patch.object(
+            ocr, "find_text", return_value=[ocr_match]
+        ) as find_text:
+            results = ElementFinder().find_all(name="Confirm", role="button")
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].name, "Confirm")
+        self.assertEqual(results[0].source, ElementSource.OCR)
+        get_screenshot.assert_called_once()
+        find_text.assert_called_once()
 
 
 if __name__ == "__main__":

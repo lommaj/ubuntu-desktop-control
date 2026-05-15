@@ -126,16 +126,17 @@ class ElementFinder:
             )
             results.extend(Element.from_atspi(e) for e in atspi_results)
 
-        # Add OCR results if name search and not enough AT-SPI results
-        if self.use_ocr and name and len(results) < max_results:
-            remaining = max_results - len(results)
-            ocr_matches = self._find_all_text_ocr(name, max_results=remaining)
+        # OCR is intentionally fallback-only for semantic searches.
+        # Tesseract is usually the slowest path, so avoid screenshot/OCR work once
+        # AT-SPI has produced semantic matches. Call find_all_text() for exhaustive
+        # OCR text discovery.
+        if results:
+            return results[:max_results]
 
-            # Filter out OCR matches that overlap with AT-SPI results
-            for match in ocr_matches:
-                ocr_elem = Element.from_ocr(match)
-                if not self._overlaps_any(ocr_elem, results):
-                    results.append(ocr_elem)
+        # Fall back to OCR only when AT-SPI produced no matches.
+        if self.use_ocr and name:
+            ocr_matches = self._find_all_text_ocr(name, max_results=max_results)
+            results.extend(Element.from_ocr(match) for match in ocr_matches)
 
         return results[:max_results]
 
